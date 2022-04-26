@@ -62,6 +62,11 @@ class unet:
             return X
 
 if __name__ == '__main__':
+
+    # Hide GPU from visible devices
+    tf.config.set_visible_devices([], 'GPU')
+
+
     unet = unet()
     X, y = unet.get_data(unet.path)
 
@@ -69,9 +74,9 @@ if __name__ == '__main__':
 
     # input_img = Input((unet.im_height, unet.im_width, 1), name='i (1)')
 
-    model = vanilla_unet(input_shape=(512, 512, 3))
+    model = vanilla_unet(input_shape=(512, 512, 1))
 
-    model.compile(optimizer=Adam(), loss="binary_crossentropy", metrics=["accuracy"])
+    model.compile(optimizer=Adam(), loss="categorical_crossentropy", metrics=["accuracy"])
 
     model.summary()
 
@@ -92,4 +97,4 @@ if __name__ == '__main__':
              label="best model")
     plt.xlabel("Epochs")
     plt.ylabel("log_loss")
-    plt.legend();
+    plt.legend()
