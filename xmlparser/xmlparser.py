@@ -89,7 +89,7 @@ class Xmlparser:
 
                 result = cv2.resize(result, (512, 512))
                 # Сохраняем обработанное изображение
-                cv2.imwrite('D:/gits/Unettestproj/source/proceedimgdir/' + objectName + '/' + self.imgFilse[i], result)
+                cv2.imwrite('D:/gits/Unettestproj/source/proceedimgdir/data/' + self.imgFilse[i], result)
 
                 j += 1
 
