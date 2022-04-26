@@ -84,6 +84,9 @@ class Xmlparser:
                 cv2.fillPoly(stencil, contours, color=[255, 255, 255])
                 result = cv2.bitwise_and(self.img, stencil)
 
+                result = result[int(self.dataListForOne[2]):int(self.dataListForOne[4]),
+                                int(self.dataListForOne[1]):int(self.dataListForOne[3])]
+
                 result = cv2.resize(result, (512, 512))
                 # Сохраняем обработанное изображение
                 cv2.imwrite('D:/gits/Unettestproj/source/proceedimgdir/' + objectName + '/' + self.imgFilse[i], result)
