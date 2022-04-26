@@ -2,6 +2,9 @@ import os
 
 import numpy as np
 import tqdm as tqdm
+from tensorflow.keras.optimizers import Adam
+from keras_unet.models import vanilla_unet
+from matplotlib import pyplot as plt
 from tqdm import tqdm_notebook, tnrange
 from itertools import chain
 from skimage.io import imread, imshow, concatenate_images
@@ -60,6 +63,33 @@ class unet:
 
 if __name__ == '__main__':
     unet = unet()
-    X, y = unet.get_data()
+    X, y = unet.get_data(unet.path)
 
-    print(X + '  ' + y)
+    X_train, X_valid, y_train, y_valid = train_test_split(X, y, test_size=0.15, random_state=2018)
+
+    # input_img = Input((unet.im_height, unet.im_width, 1), name='i (1)')
+
+    model = vanilla_unet(input_shape=(512, 512, 3))
+
+    model.compile(optimizer=Adam(), loss="binary_crossentropy", metrics=["accuracy"])
+
+    model.summary()
+
+    callbacks = [
+        EarlyStopping(patience=10, verbose=1),
+        ReduceLROnPlateau(factor=0.1, patience=3, min_lr=0.00001, verbose=1),
+        ModelCheckpoint('model-tgs-salt.h5', verbose=1, save_best_only=True, save_weights_only=True)
+    ]
+
+    results = model.fit(X_train, y_train, batch_size=32, epochs=100, callbacks=callbacks,
+                        validation_data=(X_valid, y_valid))
+
+    plt.figure(figsize=(8, 8))
+    plt.title("Learning curve")
+    plt.plot(results.history["loss"], label="loss")
+    plt.plot(results.history["val_loss"], label="val_loss")
+    plt.plot(np.argmin(results.history["val_loss"]), np.min(results.history["val_loss"]), marker="x", color="r",
+             label="best model")
+    plt.xlabel("Epochs")
+    plt.ylabel("log_loss")
+    plt.legend();

@@ -37,7 +37,8 @@ class Xmlparser:
                         'floor_cabinet':5, 'mirror':6,
                         'office_chair':7, 'shelving_and_bookcases':8,
                         'table_lamps':9, 'wall_shelves':10, 'table_lmps':9,
-                        'wall_shelves_for_books':11, 'writing_desk':12, 'table':13}
+                        'wall_shelves_for_books':11, 'writing_desk':12, 'table':13, 'ta':13, 'a':1, 'ar':1,
+                        'armchairr':1, 'table_lamps\\':9}
 
         self.COLORS = {0:(0, 255, 0), 1:(128, 255, 0),
                        2:(196, 255, 0), 3:(255, 255, 0),
@@ -86,9 +87,6 @@ class Xmlparser:
 
             for tag in self.tree.findall('object'):
 
-                if len(tag[0].text) < 5:
-                    continue
-
                 objectName = tag[0].text
 
                 self.dataListForOne.append(objectName)
@@ -124,6 +122,16 @@ class Xmlparser:
             cv2.imwrite('D:/gits/Unettestproj/source/proceedimgdir/data/' + self.imgFilse[i], self.img)
             i += 1
 
+
+    def make_equal(self):
+        for i in range(1934):
+            buf1 = self.files[i].split('.')
+            buf2 = self.imgFilse[i].split('.')
+            buf3 = buf1[0]
+            buf4 = buf2[0]
+            if (buf4 != buf3):
+                print(f'Файл xml {buf3} и файл суорс {buf4}')
+                break
 
 
 if __name__ == '__main__':
