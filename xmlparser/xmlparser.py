@@ -30,6 +30,8 @@ class Xmlparser:
 
         self.img = cv2.imread('D:/gits/Unettestproj/source/sourceimg/i (1).jpg')
 
+
+
         self.CLASSES = {'nothing':0 ,'armchair':1, 'chair':2,
                         'coach':3, 'dressers_and_cabinets_with_drawers':4,
                         'floor_cabinet':5, 'mirror':6,
@@ -40,10 +42,10 @@ class Xmlparser:
         self.COLORS = {0:(0, 255, 0), 1:(128, 255, 0),
                        2:(196, 255, 0), 3:(255, 255, 0),
                        4:(255, 188, 0), 5:(255, 119, 0),
-                       6:(255, 150, 0), 7:(255, 255, 0),
-                       8:(255, 50, 0), 9:(255, 80, 0),
+                       6:(255, 150, 0), 7:(255, 110, 150),
+                       8:(210, 50, 60), 9:(255, 80, 0),
                        10:(255, 130, 0), 11:(255, 170, 0),
-                       12:(255, 200, 0), 13:(255, 255, 0)}
+                       12:(255, 200, 0), 13:(255, 255, 50)}
 
     def printRootNode(self):
         """
@@ -112,7 +114,7 @@ class Xmlparser:
 
                 self.dataListForOne.clear()
 
-            i += 1
+
 
             self.img = cv2.resize(self.img, (512, 512))
 
@@ -120,6 +122,8 @@ class Xmlparser:
 
             # Сохраняем обработанное изображение
             cv2.imwrite('D:/gits/Unettestproj/source/proceedimgdir/data/' + self.imgFilse[i], self.img)
+            i += 1
+
 
 
 if __name__ == '__main__':
