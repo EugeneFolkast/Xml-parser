@@ -61,7 +61,7 @@ class Xmlparser:
 
             for tag in self.tree.findall('object'):
                 # Получаем изображение для обработки opencv в соответствии с именем подходящего xml файла
-                self.img = cv2.imread('D:/gits/Unettestproj/source/sourceimg/' + self.imgFilse[i], cv2.IMREAD_GRAYSCALE)
+                self.img = cv2.imread('D:/gits/Unettestproj/source/sourceimg/' + self.imgFilse[i])
 
                 objectName = tag[0].text
 
@@ -75,6 +75,7 @@ class Xmlparser:
                 cv2.rectangle(self.img, (int(self.dataListForOne[1]), int(self.dataListForOne[2])),
                                         (int(self.dataListForOne[3]), int(self.dataListForOne[4])), 1)
 
+
                 stencil = numpy.zeros(self.img.shape).astype(self.img.dtype)
                 contours = [numpy.array([[int(self.dataListForOne[1]), int(self.dataListForOne[2])],
                                          [int(self.dataListForOne[3]), int(self.dataListForOne[2])],
@@ -84,7 +85,11 @@ class Xmlparser:
                 cv2.fillPoly(stencil, contours, color=[255, 255, 255])
                 result = cv2.bitwise_and(self.img, stencil)
 
-                result = cv2.resize(result, (512, 512))
+                # обрезаем картинку по нужным координатам
+                result = result[int(self.dataListForOne[2]):int(self.dataListForOne[4]),
+                         int(self.dataListForOne[1]):int(self.dataListForOne[3])]
+
+
                 # Сохраняем обработанное изображение
                 cv2.imwrite('D:/gits/Unettestproj/source/proceedimgdir/' + objectName + '/' + self.imgFilse[i], result)
 
