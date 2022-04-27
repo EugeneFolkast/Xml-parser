@@ -126,6 +126,8 @@ class Unet:
 
     def dice_bce_mc_loss(self, a, b):
         return 0.3 * self.dice_mc_loss(a, b) + tf.keras.losses.binary_crossentropy(a, b)
+
+
 if __name__ == '__main__':
     # os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
@@ -140,11 +142,11 @@ if __name__ == '__main__':
     dataset = tf.data.Dataset.zip((images_dataset, masks_dataset))
 
     dataset = dataset.map(unet.load_images, num_parallel_calls=tf.data.AUTOTUNE)
-    dataset = dataset.repeat(60)
+    # dataset = dataset.repeat(60)
     dataset = dataset.map(unet.augmentate_images, num_parallel_calls=tf.data.AUTOTUNE)
 
-    train_dataset = dataset.take(2000).cache()
-    test_dataset = dataset.skip(2000).take(100).cache()
+    train_dataset = dataset.take(1400)
+    test_dataset = dataset.skip(1400).take(173)
 
     train_dataset = train_dataset.batch(8)
     test_dataset = test_dataset.batch(8)
@@ -152,7 +154,7 @@ if __name__ == '__main__':
     inp_layer = unet.input_layer()
 
     downsample_stack = [
-        unet.downsample_block(64, 4, batch_norm=False),
+        unet.downsample_block(64, 4, batch_norm=True),
         unet.downsample_block(128, 4),
         unet.downsample_block(256, 4),
         unet.downsample_block(512, 4),
@@ -195,7 +197,7 @@ if __name__ == '__main__':
 
     unet_like.compile(optimizer=tf.keras.optimizers.Adam(), loss=[unet.dice_bce_mc_loss], metrics=[unet.dice_mc_metric])
 
-    history_dice = unet_like.fit(train_dataset, validation_data=test_dataset, epochs=25, initial_epoch=0)
+    history_dice = unet_like.fit(train_dataset, validation_data=test_dataset, batch_size=1, epochs=25, initial_epoch=0)
 
     unet_like.save_weights('D:/gits/Unettestproj/source/weights/')
 
