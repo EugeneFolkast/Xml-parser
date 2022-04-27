@@ -1,100 +1,257 @@
 import os
+import time
+import glob
 
+import adam
 import numpy as np
-import tqdm as tqdm
-from tensorflow.keras.optimizers import Adam
-from keras_unet.models import vanilla_unet
-from matplotlib import pyplot as plt
-from tqdm import tqdm_notebook, tnrange
-from itertools import chain
-from skimage.io import imread, imshow, concatenate_images
-from skimage.transform import resize
-from skimage.morphology import label
-from sklearn.model_selection import train_test_split
-
+import matplotlib.pyplot as plt
 import tensorflow as tf
 
-from keras.models import Model, load_model
-from keras.layers import Input, BatchNormalization, Activation, Dense, Dropout
-from keras.layers.core import Lambda, RepeatVector, Reshape
-from keras.layers.convolutional import Conv2D, Conv2DTranspose
-from keras.layers.pooling import MaxPooling2D, GlobalMaxPool2D
-from keras.layers.merge import concatenate, add
-from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
-from keras.optimizers import adam_v2
-from keras.preprocessing.image import ImageDataGenerator, array_to_img, img_to_array, load_img
+from skimage import measure
+from skimage.io import imread, imsave, imshow
+from skimage.transform import resize
+from skimage.filters import gaussian
+from skimage.morphology import dilation, disk
+from skimage.draw import polygon, polygon_perimeter
 
-import xmlparser.xmlparser
-
-class unet:
+class Unet:
     def __init__(self):
-        self.im_width = 512
-        self.im_height = 512
-        self.path = 'D:/gits/Unettestproj/source/sourceimg/'
+        self.CLASSES = 14
 
-    def get_data(self, train = True):
-        ids = next(os.walk(self.path))[2]
-        X = np.zeros((len(ids), self.im_height, self.im_width, 1), dtype=np.float32)
+        self.COLORS = ['black', 'red', 'lime',
+                  'blue', 'orange', 'pink',
+                  'cyan', 'magenta', 'crimson',
+                       'deeppink', 'tomato', 'deeporange',
+                       'gold', 'yellow']
 
-        if train:
-            y = np.zeros((len(ids), self.im_height, self.im_width, 1), dtype=np.float32)
+        self.SAMPLE_SIZE = (256, 256)
 
-        for n, id_ in tqdm.tqdm_notebook(enumerate(ids), total=len(ids)):
-            # Load images
-            img = load_img(self.path + id_, color_mode = "grayscale")
-            x_img = img_to_array(img)
-            x_img = resize(x_img, (512, 512, 1), mode='constant', preserve_range=True)
+        self.OUTPUT_SIZE = (1080, 1920)
 
-            # Load masks
-            if train:
-                mask = img_to_array(load_img('D:/gits/Unettestproj/source/proceedimgdir/data/' + id_, color_mode = "grayscale"))
-                mask = resize(mask, (512, 512, 1), mode='constant', preserve_range=True)
+    def load_images(self, image, mask):
+        image = tf.io.read_file(image)
+        image = tf.io.decode_jpeg(image)
+        image = tf.image.resize(image, self.OUTPUT_SIZE)
+        image = tf.image.convert_image_dtype(image, tf.float32)
+        image = image / 255.0
 
-            # Save images
-            X[n, ..., 0] = x_img.squeeze() / 255
-            if train:
-                y[n] = mask / 255
-        print('Done!')
+        mask = tf.io.read_file(mask)
+        mask = tf.io.decode_png(mask)
+        # mask = tf.image.rgb_to_grayscale(mask)
+        mask = tf.image.resize(mask, self.OUTPUT_SIZE)
+        mask = tf.image.convert_image_dtype(mask, tf.float32)
 
-        if train:
-            return X, y
-        else:
-            return X
+        masks = []
 
+        for i in range(self.CLASSES):
+            masks.append(tf.where(tf.equal(mask, float(i)), 1.0, 0.0))
+
+        masks = tf.stack(masks, axis=2)
+        masks = tf.reshape(masks, self.OUTPUT_SIZE + (self.CLASSES,))
+
+        return image, masks
+
+    def augmentate_images(self, image, masks):
+        random_crop = tf.random.uniform((), 0.3, 1)
+        image = tf.image.central_crop(image, random_crop)
+        masks = tf.image.central_crop(masks, random_crop)
+
+        random_flip = tf.random.uniform((), 0, 1)
+        if random_flip >= 0.5:
+            image = tf.image.flip_left_right(image)
+            masks = tf.image.flip_left_right(masks)
+
+        image = tf.image.resize(image, self.SAMPLE_SIZE)
+        masks = tf.image.resize(masks, self.SAMPLE_SIZE)
+
+        return image, masks
+
+    def input_layer(self):
+        return tf.keras.layers.Input(shape=self.SAMPLE_SIZE + (3,))
+
+    def downsample_block(self, filters, size, batch_norm=True):
+        initializer = tf.keras.initializers.GlorotNormal()
+
+        result = tf.keras.Sequential()
+
+        result.add(
+            tf.keras.layers.Conv2D(filters, size, strides=2, padding='same',
+                                   kernel_initializer=initializer, use_bias=False))
+
+        if batch_norm:
+            result.add(tf.keras.layers.BatchNormalization())
+
+        result.add(tf.keras.layers.LeakyReLU())
+        return result
+
+    def upsample_block(self, filters, size, dropout=False):
+        initializer = tf.keras.initializers.GlorotNormal()
+
+        result = tf.keras.Sequential()
+
+        result.add(
+            tf.keras.layers.Conv2DTranspose(filters, size, strides=2, padding='same',
+                                            kernel_initializer=initializer, use_bias=False))
+
+        result.add(tf.keras.layers.BatchNormalization())
+
+        if dropout:
+            result.add(tf.keras.layers.Dropout(0.25))
+
+        result.add(tf.keras.layers.ReLU())
+        return result
+
+    def output_layer(self, size):
+        initializer = tf.keras.initializers.GlorotNormal()
+        return tf.keras.layers.Conv2DTranspose(self.CLASSES, size, strides=2, padding='same',
+                                               kernel_initializer=initializer, activation='sigmoid')
+
+    def dice_mc_metric(self, a, b):
+        a = tf.unstack(a, axis=3)
+        b = tf.unstack(b, axis=3)
+
+        dice_summ = 0
+
+        for i, (aa, bb) in enumerate(zip(a, b)):
+            numenator = 2 * tf.math.reduce_sum(aa * bb) + 1
+            denomerator = tf.math.reduce_sum(aa + bb) + 1
+            dice_summ += numenator / denomerator
+
+        avg_dice = dice_summ / self.CLASSES
+
+        return avg_dice
+
+    def dice_mc_loss(self, a, b):
+        return 1 - self.dice_mc_metric(a, b)
+
+    def dice_bce_mc_loss(self, a, b):
+        return 0.3 * self.dice_mc_loss(a, b) + tf.keras.losses.binary_crossentropy(a, b)
 if __name__ == '__main__':
+    # os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
-    # Hide GPU from visible devices
-    tf.config.set_visible_devices([], 'GPU')
+    unet = Unet()
 
+    images = sorted(glob.glob('D:/gits/Unettestproj/source/sourceimg/*.jpg'))
+    masks = sorted(glob.glob('D:/gits/Unettestproj/source/proceedimgdir/pngdata/*.png'))
 
-    unet = unet()
-    X, y = unet.get_data(unet.path)
+    images_dataset = tf.data.Dataset.from_tensor_slices(images)
+    masks_dataset = tf.data.Dataset.from_tensor_slices(masks)
 
-    X_train, X_valid, y_train, y_valid = train_test_split(X, y, test_size=0.15, random_state=2018)
+    dataset = tf.data.Dataset.zip((images_dataset, masks_dataset))
 
-    # input_img = Input((unet.im_height, unet.im_width, 1), name='i (1)')
+    dataset = dataset.map(unet.load_images, num_parallel_calls=tf.data.AUTOTUNE)
+    dataset = dataset.repeat(60)
+    dataset = dataset.map(unet.augmentate_images, num_parallel_calls=tf.data.AUTOTUNE)
 
-    model = vanilla_unet(input_shape=(512, 512, 1))
+    train_dataset = dataset.take(2000).cache()
+    test_dataset = dataset.skip(2000).take(100).cache()
 
-    model.compile(optimizer=Adam(), loss="categorical_crossentropy", metrics=["accuracy"])
+    train_dataset = train_dataset.batch(8)
+    test_dataset = test_dataset.batch(8)
 
-    model.summary()
+    inp_layer = unet.input_layer()
 
-    callbacks = [
-        EarlyStopping(patience=10, verbose=1),
-        ReduceLROnPlateau(factor=0.1, patience=3, min_lr=0.00001, verbose=1),
-        ModelCheckpoint('model-tgs-salt.h5', verbose=1, save_best_only=True, save_weights_only=True)
+    downsample_stack = [
+        unet.downsample_block(64, 4, batch_norm=False),
+        unet.downsample_block(128, 4),
+        unet.downsample_block(256, 4),
+        unet.downsample_block(512, 4),
+        unet.downsample_block(512, 4),
+        unet.downsample_block(512, 4),
+        unet.downsample_block(512, 4),
     ]
 
-    results = model.fit(X_train, y_train, batch_size=32, epochs=100, callbacks=callbacks,
-                        validation_data=(X_valid, y_valid))
+    upsample_stack = [
+        unet.upsample_block(512, 4, dropout=True),
+        unet.upsample_block(512, 4, dropout=True),
+        unet.upsample_block(512, 4, dropout=True),
+        unet.upsample_block(256, 4),
+        unet.upsample_block(128, 4),
+        unet.upsample_block(64, 4)
+    ]
 
-    plt.figure(figsize=(8, 8))
-    plt.title("Learning curve")
-    plt.plot(results.history["loss"], label="loss")
-    plt.plot(results.history["val_loss"], label="val_loss")
-    plt.plot(np.argmin(results.history["val_loss"]), np.min(results.history["val_loss"]), marker="x", color="r",
-             label="best model")
-    plt.xlabel("Epochs")
-    plt.ylabel("log_loss")
-    plt.legend()
+    out_layer = unet.output_layer(4)
+
+    # Реализуем skip connections
+    x = inp_layer
+
+    downsample_skips = []
+
+    for block in downsample_stack:
+        x = block(x)
+        downsample_skips.append(x)
+
+    downsample_skips = reversed(downsample_skips[:-1])
+
+    for up_block, down_block in zip(upsample_stack, downsample_skips):
+        x = up_block(x)
+        x = tf.keras.layers.Concatenate()([x, down_block])
+
+    out_layer = out_layer(x)
+
+    unet_like = tf.keras.Model(inputs=inp_layer, outputs=out_layer)
+
+    tf.keras.utils.plot_model(unet_like, show_shapes=True, dpi=72)
+
+    unet_like.compile(optimizer=tf.keras.optimizers.Adam(), loss=[unet.dice_bce_mc_loss], metrics=[unet.dice_mc_metric])
+
+    history_dice = unet_like.fit(train_dataset, validation_data=test_dataset, epochs=25, initial_epoch=0)
+
+    unet_like.save_weights('D:/gits/Unettestproj/source/weights/')
+
+    unet_like.load_weights('D:/gits/Unettestproj/source/weights/')
+
+    rgb_colors = [
+        (0, 0, 0),
+        (255, 0, 0),
+        (0, 255, 0),
+        (0, 0, 255),
+        (255, 165, 0),
+        (255, 192, 203),
+        (0, 255, 255),
+        (255, 0, 255),
+
+        (220, 20, 60),
+        (255, 20, 147),
+        (255, 99, 71),
+        (255, 140, 0),
+        (255, 215, 0),
+        (255, 255, 0)
+
+
+    ]
+
+    frames = sorted(glob.glob('D:/gits/Unettestproj/source/test/*.jpg'))
+
+    for filename in frames:
+        frame = imread(filename)
+        sample = resize(frame, unet.SAMPLE_SIZE)
+
+        predict = unet_like.predict(sample.reshape((1,) + unet.SAMPLE_SIZE + (3,)))
+        predict = predict.reshape(unet.SAMPLE_SIZE + (unet.CLASSES,))
+
+        scale = frame.shape[0] / unet.SAMPLE_SIZE[0], frame.shape[1] / unet.SAMPLE_SIZE[1]
+
+        frame = (frame / 1.5).astype(np.uint8)
+
+        for channel in range(1, unet.CLASSES):
+            contour_overlay = np.zeros((frame.shape[0], frame.shape[1]))
+            contours = measure.find_contours(np.array(predict[:, :, channel]))
+
+            try:
+                for contour in contours:
+                    rr, cc = polygon_perimeter(contour[:, 0] * scale[0],
+                                               contour[:, 1] * scale[1],
+                                               shape=contour_overlay.shape)
+
+                    contour_overlay[rr, cc] = 1
+
+                contour_overlay = dilation(contour_overlay, disk(1))
+                frame[contour_overlay == 1] = rgb_colors[channel]
+            except:
+                pass
+
+        imsave(f'D:/gits/Unettestproj/source/proceedimgdir{os.path.basename(filename)}', frame)
+
+
+

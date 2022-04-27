@@ -3,6 +3,7 @@ import cv2
 import numpy
 import os
 
+from PIL import Image
 
 class Xmlparser:
 
@@ -32,7 +33,7 @@ class Xmlparser:
 
 
 
-        self.CLASSES = {'nothing':0 ,'armchair':1, 'chair':2,
+        self.CLASSES = {'armchair':1, 'chair':2,
                         'coach':3, 'dressers_and_cabinets_with_drawers':4,
                         'floor_cabinet':5, 'mirror':6,
                         'office_chair':7, 'shelving_and_bookcases':8,
@@ -40,13 +41,13 @@ class Xmlparser:
                         'wall_shelves_for_books':11, 'writing_desk':12, 'table':13, 'ta':13, 'a':1, 'ar':1,
                         'armchairr':1, 'table_lamps\\':9}
 
-        self.COLORS = {0:(0, 255, 0), 1:(128, 255, 0),
-                       2:(196, 255, 0), 3:(255, 255, 0),
-                       4:(255, 188, 0), 5:(255, 119, 0),
-                       6:(255, 150, 0), 7:(255, 110, 150),
-                       8:(210, 50, 60), 9:(255, 80, 0),
-                       10:(255, 130, 0), 11:(255, 170, 0),
-                       12:(255, 200, 0), 13:(255, 255, 50)}
+        self.COLORS = { 1:(255, 0, 0),
+                       2:(0, 255, 0), 3:(0, 0, 255),
+                       4: (255, 165, 0), 5: (255, 192, 203),
+                       6:(0, 255, 255), 7:(255, 0, 255),
+                       8:(220, 20, 60), 9:(255, 20, 147),
+                       10:(255, 99, 71), 11:(255, 140, 0),
+                       12:(255, 215, 0), 13:(255, 255, 0)}
 
     def printRootNode(self):
         """
@@ -114,7 +115,7 @@ class Xmlparser:
 
 
 
-            self.img = cv2.resize(self.img, (512, 512))
+            self.img = cv2.resize(self.img, (1920, 1080))
 
             self.img = cv2.cvtColor(self.img, cv2.COLOR_BGR2GRAY)
 
@@ -133,9 +134,16 @@ class Xmlparser:
                 print(f'Файл xml {buf3} и файл суорс {buf4}')
                 break
 
+    def from_jpg_to_png(self):
+        imgFilesJpg = os.listdir('D:/gits/Unettestproj/source/proceedimgdir/data/')
+
+        for element in imgFilesJpg:
+            buf2 = element.split('.')
+            image = Image.open('D:/gits/Unettestproj/source/proceedimgdir/data/' + element)
+            image.save('D:/gits/Unettestproj/source/proceedimgdir/pngdata/' + buf2[0] + '.png')
 
 if __name__ == '__main__':
     xmlRun = Xmlparser()
-
     xmlRun.printRootNode()
+    xmlRun.from_jpg_to_png()
 
